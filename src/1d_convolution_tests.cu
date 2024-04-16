@@ -11,14 +11,16 @@
 
 int main(int argc, char **argv) {
   if (argc != 2) {
-    std::cerr << "Please select a kernel (range 0 - 6)" << std::endl;
+      std::cerr << "Please select a kernel (range 0 - " << MAX_KERNEL_INDEX << ")" << std::endl;
     exit(EXIT_FAILURE);
   }
 
+  int include_transfer_time = 1;
+
   // get kernel number
   int kernel_num = std::stoi(argv[1]);
-  if (kernel_num < 0 || kernel_num > 6) {
-    std::cerr << "Please enter a valid kernel number (0-6)" << std::endl;
+  if (kernel_num < 0 || kernel_num > MAX_KERNEL_INDEX) {
+    std::cerr << "Please enter a valid kernel number (0 - " << MAX_KERNEL_INDEX << ")" << std::endl;
     exit(EXIT_FAILURE);
   }
 
@@ -29,7 +31,7 @@ int main(int argc, char **argv) {
   }
   cudaCheck(cudaSetDevice(deviceIdx));
 
-  printf("Running kernel %d (%s) on device %d.\n",
+  printf("Running kernel %d (%s) on device %d\n",
          kernel_num, indexToKernelName(kernel_num),  deviceIdx);
   fflush(stdout);
 
@@ -87,19 +89,15 @@ int main(int argc, char **argv) {
     cudaEventRecord(beg);
     host_convolution (signal, filter, result_ref, sig_length, filter_length);
     cudaEventRecord(end);
-    cudaEventSynchronize(beg);
     cudaEventSynchronize(end);
     cudaEventElapsedTime(&elapsed_time, beg, end);
-    elapsed_time /= 1000.; // Convert to seconds
 
     // kernel_num == 0 ==> just run and time the CPU implementation.
     if (kernel_num == 0) {
         long flops = 2 * sig_length * filter_length;
-        printf(
-               "CPU elapsed time: (%7.6f) s, performance: (%7.1f) GFLOPS. sig_length: "
-               "(%4d).\n",
+        printf("CPU elapsed time: %10.3f millisec, performance: %7.1f GFLOPS. sig_length: %8d\n",
                elapsed_time,
-               (flops * 1e-9) / elapsed_time, sig_length);
+               (flops * 1e-6) / elapsed_time, sig_length);
         fflush(stdout);
     } else {
 
@@ -111,34 +109,39 @@ int main(int argc, char **argv) {
         cudaCheck(cudaGetLastError()); // Check for async errors during kernel run
         cudaMemcpy(result, d_result, sizeof(float) * sig_length, cudaMemcpyDeviceToHost);
 
-        if (!verify_matrix(result_ref, result, sig_length)) {
+        int errIndex;
+
+        if (!verify_matrix(result_ref, result, sig_length, &errIndex)) {
             std::cout
                 << "Failed to pass the correctness verification against host implementation. "
                 << std::endl;
 
-            printf("Implementation result: ");
-            for (int dummy=0; dummy < 16; dummy++) printf (" %2.2f", result[dummy]);
+            printf("Reference result (starting at error index = %d)\n", errIndex);
+            for (int dummy=0; dummy < 12; dummy++) printf (" %8.2f", result_ref[errIndex + dummy]);
+            printf("\n");
+            printf("Implementation result:\n");
+            for (int dummy=0; dummy < 12; dummy++) printf (" %8.2f", result[errIndex + dummy]);
             printf("\n");
 
             exit(EXIT_FAILURE);
         }
-
         cudaEventRecord(beg);
         for (int j = 0; j < repeat_times; j++) {
+
+            if (include_transfer_time)
+                cudaCheck(cudaMemcpy(d_signal, signal, sizeof(float) * max_length, cudaMemcpyHostToDevice));
             run_kernel(kernel_num, d_signal, d_filter, d_result, sig_length, filter_length);
+            if (include_transfer_time)
+                cudaMemcpy(result, d_result, sizeof(float) * sig_length, cudaMemcpyDeviceToHost);
         };
         cudaEventRecord(end);
-        cudaEventSynchronize(beg);
         cudaEventSynchronize(end);
         cudaEventElapsedTime(&elapsed_time, beg, end);
-        elapsed_time /= 1000.; // Convert to seconds
 
         long flops = 2 * sig_length * filter_length;
-        printf(
-               "Average elapsed time: (%7.6f) s, performance: (%7.1f) GFLOPS. sig_length: "
-               "(%4d).\n",
+        printf("Average elapsed time: %10.3f millisec, performance: %7.1f GFLOPS. sig_length: %8d\n",
                elapsed_time / repeat_times,
-               (repeat_times * flops * 1e-9) / elapsed_time, sig_length);
+               (repeat_times * flops * 1e-6) / elapsed_time, sig_length);
         fflush(stdout);
     }
   }
