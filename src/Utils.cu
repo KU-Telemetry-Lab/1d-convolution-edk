@@ -97,7 +97,7 @@ void print_matrix(const float *A, int M, int N, std::ofstream &fs) {
   fs << "]\n";
 }
 
-bool verify_matrix(float *matRef, float *matOut, int N) {
+bool verify_matrix(float *matRef, float *matOut, int N, int* errIndex) {
   double diff = 0.0;
   int i;
   for (i = 0; i < N; i++) {
@@ -105,6 +105,7 @@ bool verify_matrix(float *matRef, float *matOut, int N) {
     if (diff > 0.01) {
       printf("Divergence! Reference result = %.2f, implementation = %.2f (Diff %.2f) at %d\n",
              matRef[i], matOut[i], diff, i);
+      *errIndex = i;
       return false;
     }
   }

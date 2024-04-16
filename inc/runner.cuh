@@ -41,7 +41,7 @@ void run_wide_cache (float *signal, float *filter, float *result,
   const int FILTER_LENGTH = FILTER_WIDTH;
   wide_cache<NUM_THREADS, FILTER_LENGTH>
     <<<ROUND_UP(sig_length, NUM_THREADS), NUM_THREADS>>>
-    (signal, filter, result, sig_length, filter_length);
+      (signal, filter, result, sig_length);
 }
 
 void run_wide_cache_filter_cached (float *signal, float *filter, float *result,
@@ -66,6 +66,22 @@ void run_wide_cache_filter_constant_mem(float *signal, float *filter, float *res
       (signal, result, sig_length);
 }
 
+
+void run_more_threads(float *signal, float *filter, float *result,
+                      int sig_length, int filter_length) {
+
+  const int NUM_THREADS = 256;
+  const int NUM_HELPERS = 4;
+  const int FILTER_LENGTH = FILTER_WIDTH;
+
+  dim3 gridDim(ROUND_UP(sig_length, NUM_THREADS));
+  dim3 blockDim(NUM_THREADS, NUM_HELPERS);
+
+  more_threads <NUM_THREADS, FILTER_LENGTH, NUM_HELPERS>
+      <<<gridDim, blockDim>>>
+      (signal, result, sig_length);
+}
+
 void run_kernel(int kernel_num, float *signal, float *filter, float *result,
                 int sig_length, int filter_length) {
   switch (kernel_num) {
@@ -86,6 +102,10 @@ void run_kernel(int kernel_num, float *signal, float *filter, float *result,
     break;
   case 6:
     run_wide_cache_filter_constant_mem (signal, filter, result, sig_length, filter_length);
+    break;
+
+  case 7:
+    run_more_threads (signal, filter, result, sig_length, filter_length);
     break;
 
   default:
