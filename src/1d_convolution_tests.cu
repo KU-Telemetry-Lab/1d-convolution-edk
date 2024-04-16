@@ -10,18 +10,24 @@
 
 
 int main(int argc, char **argv) {
-  if (argc != 2) {
-      std::cerr << "Please select a kernel (range 0 - " << MAX_KERNEL_INDEX << ")" << std::endl;
+  if (argc < 2) {
+      std::cerr << argv[0] << " <kernel_id> (range 0 - " << MAX_KERNEL_INDEX << ")";
+      std::cerr << " <include_data_transfer_times> (0/1)" << std::endl;
     exit(EXIT_FAILURE);
   }
-
-  int include_transfer_time = 1;
+  int include_transfer_time;
 
   // get kernel number
   int kernel_num = std::stoi(argv[1]);
   if (kernel_num < 0 || kernel_num > MAX_KERNEL_INDEX) {
     std::cerr << "Please enter a valid kernel number (0 - " << MAX_KERNEL_INDEX << ")" << std::endl;
     exit(EXIT_FAILURE);
+  }
+
+  if (argc > 2) {
+      include_transfer_time = std::stoi(argv[2]);
+  } else {
+      include_transfer_time = 0;
   }
 
   // get environment variable for device
@@ -31,8 +37,8 @@ int main(int argc, char **argv) {
   }
   cudaCheck(cudaSetDevice(deviceIdx));
 
-  printf("Running kernel %d (%s) on device %d\n",
-         kernel_num, indexToKernelName(kernel_num),  deviceIdx);
+  printf("Running kernel %d (%s) on device %d, FILTER_WIDTH = %d\n",
+         kernel_num, indexToKernelName(kernel_num),  deviceIdx, FILTER_WIDTH);
   fflush(stdout);
 
   // print some device info
@@ -95,7 +101,7 @@ int main(int argc, char **argv) {
     // kernel_num == 0 ==> just run and time the CPU implementation.
     if (kernel_num == 0) {
         long flops = 2 * sig_length * filter_length;
-        printf("CPU elapsed time: %10.3f millisec, performance: %7.1f GFLOPS. sig_length: %8d\n",
+        printf("CPU elapsed time: %10.3f millisec, performance: %8.2f GFLOPS. sig_length: %8d\n",
                elapsed_time,
                (flops * 1e-6) / elapsed_time, sig_length);
         fflush(stdout);
@@ -139,7 +145,7 @@ int main(int argc, char **argv) {
         cudaEventElapsedTime(&elapsed_time, beg, end);
 
         long flops = 2 * sig_length * filter_length;
-        printf("Average elapsed time: %10.3f millisec, performance: %7.1f GFLOPS. sig_length: %8d\n",
+        printf("Average elapsed time: %10.3f millisec, performance: %8.2f GFLOPS. sig_length: %8d\n",
                elapsed_time / repeat_times,
                (repeat_times * flops * 1e-6) / elapsed_time, sig_length);
         fflush(stdout);
