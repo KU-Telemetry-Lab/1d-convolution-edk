@@ -7,10 +7,9 @@
 
 #include "bundleElt16.h"
 
-#define FILTER_WIDTH 57
+#define FILTER_WIDTH 255
 
 __constant__ float FILTER[FILTER_WIDTH];
-
 
 /****************/
 /* CPU FUNCTION */
@@ -26,21 +25,6 @@ static void host_convolution(const float * __restrict__ signal, const float * __
             temp += signal[N_start_point+ j] * filter[j];
         }
         result_CPU[i] = temp;
-    }
-}
-
-static void host_convolution_bundle (const bundleElt * __restrict__ sig_bundle, const float * __restrict__ filter,
-                             bundleElt * __restrict__ result_bundle, const int sig_length, const int filter_length) {
-
-    float * signal;
-    signal = (float *)malloc(sizeof(float) * sig_length);
-    float * result;
-    result = (float *)malloc(sizeof(float) * sig_length);
-
-    for (int slot = 0; slot < SLOTS_PER_ELT; slot++) {
-        for (int j = 0; j < sig_length; j++) signal[j] = sig_bundle[j].s[slot];
-        host_convolution(signal, filter, result, sig_length, filter_length);
-        for (int j = 0; j < sig_length; j++) result_bundle[j].s[slot] = result[j];
     }
 }
 
@@ -91,75 +75,86 @@ __global__ void convolution_caching(const float * __restrict__ d_Signal, const f
 
     __shared__ float d_Tile[NUM_THREADS];
 
-    d_Tile[threadIdx.x] = d_Signal[i];
+    if ( i < sig_length) {
+        d_Tile[threadIdx.x] = d_Signal[i];
+    }
     __syncthreads();
 
     float temp = 0.f;
     int N_start_point = i - (filter_length / 2);
+    int current_point;
 
-    for (int j = 0; j < filter_length; j++) if (N_start_point + j >= 0 && N_start_point + j < sig_length) {
-            if ((N_start_point + j >= blockIdx.x * blockDim.x) && (N_start_point + j < (blockIdx.x + 1) * blockDim.x))
+    for (int j = 0; j < filter_length; j++) {
+        current_point = N_start_point + j;
+        if (current_point >= 0 && current_point < sig_length) {
+            if ((current_point >= blockIdx.x * blockDim.x) && (current_point < (blockIdx.x + 1) * blockDim.x))
                 // --- The signal element is in the tile loaded in the shared memory
                 temp += d_Tile[threadIdx.x + j - (filter_length / 2)] * d_filter[j];
             else
                 // --- The signal element is not in the tile loaded in the shared memory
-                temp += d_Signal[N_start_point + j] * d_filter[j];
+                temp += d_Signal[current_point] * d_filter[j];
+        }
     }
-    d_Result_GPU[i] = temp;
+    if ( i < sig_length) {
+        d_Result_GPU[i] = temp;
+    }
 }
+
 
 template <const int NUM_THREADS, const int FILTER_LENGTH >
 __global__ void wide_cache (const float * __restrict__ signal, const float * __restrict__ filter,
-                                         float * __restrict__ result, const int sigLen, const int filter_length) {
+                            float * __restrict__ result, const int sigLen) {
 
-  int i = blockIdx.x * blockDim.x + threadIdx.x;
-  int iLocal = threadIdx.x;
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    int iLocal = threadIdx.x;
 
-  __shared__ float sigLocal[ NUM_THREADS + FILTER_LENGTH];
+    const int filter_radius = FILTER_LENGTH/2;
 
-  int sigIndex;
-  if ( i < sigLen) {
-    sigIndex = i - filter_length/2;
-    sigLocal[iLocal] = sigIndex < 0 ? 0.0: signal[sigIndex];
-    if (iLocal < filter_length) {
-      sigIndex = i - filter_length/2 + NUM_THREADS;
-      sigLocal[iLocal + NUM_THREADS] = sigIndex >= sigLen ? 0.0: signal[sigIndex];
+    __shared__ float sigLocal[ NUM_THREADS + FILTER_LENGTH];
+
+   int sigIndex;
+   sigIndex = i - filter_radius;
+   sigLocal[iLocal] = (sigIndex >= 0 && sigIndex < sigLen) ? signal[sigIndex] : 0.0f;
+   if (iLocal < FILTER_LENGTH) {
+       sigIndex = i - filter_radius + NUM_THREADS;
+       sigLocal[iLocal + NUM_THREADS] = (sigIndex < sigLen) ? signal[sigIndex] : 0.0f;
+   }
+   __syncthreads();
+
+    if ( i < sigLen) {
+        float accum = 0.0;
+        for (int j=0; j < FILTER_LENGTH; j++) accum += sigLocal[iLocal + j] * filter[j];
+        result[i] = accum;
     }
-    __syncthreads();
-
-    float accum = 0.0;
-    for (int j=0; j < filter_length; j++) accum += sigLocal[iLocal + j] * filter[j];
-    result[i] = accum;
-  }
 }
 
 template <const int NUM_THREADS, const int FILTER_LENGTH >
 __global__ void wide_cache_filter_cached (const float * __restrict__ signal, const float * __restrict__ filter,
-                                                 float * __restrict__ result, const int sigLen, const int filter_length) {
+                                          float * __restrict__ result, const int sigLen, const int filter_length) {
 
-  int i = blockIdx.x * blockDim.x + threadIdx.x;
-  int iLocal = threadIdx.x;
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    int iLocal = threadIdx.x;
 
-  __shared__ float sigLocal[ NUM_THREADS + FILTER_LENGTH];
-  __shared__ float filterLocal[FILTER_LENGTH];
+    __shared__ float sigLocal[ NUM_THREADS + FILTER_LENGTH];
+    __shared__ float filterLocal[FILTER_LENGTH];
 
-  int sigIndex;
-  if ( i < sigLen) {
+    int sigIndex;
     sigIndex = i - filter_length/2;
-    sigLocal[iLocal] = sigIndex < 0 ? 0.0: signal[sigIndex];
+    sigLocal[iLocal] = (sigIndex >= 0 && sigIndex < sigLen) ? signal[sigIndex] : 0.0f;
     if (iLocal < filter_length) {
-      sigIndex = i - filter_length/2 + NUM_THREADS;
-      sigLocal[iLocal + NUM_THREADS] = sigIndex >= sigLen ? 0.0: signal[sigIndex];
+        sigIndex = i - filter_length/2 + NUM_THREADS;
+        sigLocal[iLocal + NUM_THREADS] = (sigIndex < sigLen) ? signal[sigIndex] : 0.0f;
     }
     if (iLocal < FILTER_LENGTH) {
-      filterLocal[iLocal] = filter[iLocal];
+        filterLocal[iLocal] = filter[iLocal];
     }
     __syncthreads();
 
-    float accum = 0.0;
-    for (int j=0; j < filter_length; j++) accum += sigLocal[iLocal + j] * filterLocal[j];
-    result[i] = accum;
-  }
+    if ( i < sigLen) {
+        float accum = 0.0;
+        for (int j=0; j < filter_length; j++) accum += sigLocal[iLocal + j] * filterLocal[j];
+        result[i] = accum;
+    }
 }
 
 
@@ -175,21 +170,82 @@ __global__ void wide_cache_filter_constant_mem (const float * __restrict__ signa
   int filter_radius = FILTER_LENGTH/2;
   int sigIndex;
 
-  if ( i < sigLen) {
-    sigIndex = i - filter_radius;
-    sigLocal[iLocal] = sigIndex < 0 ? 0.0: signal[sigIndex];
-    if (iLocal < FILTER_LENGTH) {
+  sigIndex = i - filter_radius;
+  sigLocal[iLocal] = (sigIndex >= 0 && sigIndex < sigLen) ? signal[sigIndex] : 0.0f;
+  if (iLocal < FILTER_LENGTH) {
       sigIndex = i - filter_radius + NUM_THREADS;
-      sigLocal[iLocal + NUM_THREADS] = sigIndex >= sigLen ? 0.0: signal[sigIndex];
-    }
+      sigLocal[iLocal + NUM_THREADS] = (sigIndex < sigLen) ? signal[sigIndex] : 0.0f;
+  }
     __syncthreads();
 
+  if ( i < sigLen) {
     float accum = 0.0;
     for (int j=0; j < FILTER_LENGTH; j++) accum += sigLocal[iLocal + j] * FILTER[j];
     result[i] = accum;
   }
 }
 
+
+template <const int NUM_THREADS, const int FILTER_LENGTH, const int NUM_HELPERS >
+__global__ void more_threads (const float * __restrict__ signal,
+                              float * __restrict__ result, const int sigLen) {
+
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    int iLocal = threadIdx.x;
+    int helperThread = threadIdx.y;
+    int partialSumBase = iLocal * NUM_HELPERS;
+
+    __shared__ float sigLocal[ NUM_THREADS + FILTER_LENGTH];
+    __shared__ float partialSum[NUM_THREADS * NUM_HELPERS];
+
+    int filter_radius = FILTER_LENGTH/2;
+    int sigIndex;
+    int localj;
+
+    if (helperThread == 0) {
+        sigIndex = i - filter_radius;
+        sigLocal[iLocal] = (sigIndex >= 0 && sigIndex < sigLen) ? signal[sigIndex] : 0.0f;
+        if (iLocal < FILTER_LENGTH) {
+            sigIndex = i - filter_radius + NUM_THREADS;
+            sigLocal[iLocal + NUM_THREADS] = (sigIndex < sigLen) ? signal[sigIndex] : 0.0f;
+        }
+        for (int j=0; j < NUM_HELPERS; j++) {
+            partialSum[partialSumBase + j] = 0.0;
+        }
+    }
+    __syncthreads();
+
+    for (int j=0; j < FILTER_LENGTH; j=j+NUM_HELPERS) {
+        localj = j + helperThread;
+        if (localj < FILTER_LENGTH) {
+            partialSum[partialSumBase + helperThread] += sigLocal[iLocal + localj] * FILTER[localj];
+        }
+    }
+    __syncthreads();
+
+    float accum = 0.0;
+    if ( i < sigLen && helperThread == 0) {
+        for (int j=0; j < NUM_HELPERS; j++) {
+            accum += partialSum[partialSumBase + j];
+        }
+        result[i] = accum;
+    }
+}
+
+static void host_convolution_bundle (const bundleElt * __restrict__ sig_bundle, const float * __restrict__ filter,
+                             bundleElt * __restrict__ result_bundle, const int sig_length, const int filter_length) {
+
+    float * signal;
+    signal = (float *)malloc(sizeof(float) * sig_length);
+    float * result;
+    result = (float *)malloc(sizeof(float) * sig_length);
+
+    for (int slot = 0; slot < SLOTS_PER_ELT; slot++) {
+        for (int j = 0; j < sig_length; j++) signal[j] = sig_bundle[j].s[slot];
+        host_convolution(signal, filter, result, sig_length, filter_length);
+        for (int j = 0; j < sig_length; j++) result_bundle[j].s[slot] = result[j];
+    }
+}
 
 template <const int NUM_THREADS, const int FILTER_LENGTH >
 __global__ void convolution_bundle (const bundleElt * __restrict__ signal,
@@ -215,8 +271,10 @@ __global__ void convolution_bundle (const bundleElt * __restrict__ signal,
               sigLocal[iLocal + NUM_THREADS] = sigIndex >= sig_length ? bundle0 : signal[sigIndex];
           }
       }
-      __syncthreads();
+  }
+  __syncthreads();
 
+  if (i < sig_length) {
       bundleElt accum = bundle0;
       for (int j=0; j < FILTER_LENGTH; j++) accum.s[slot] += sigLocal[iLocal + j].s[slot]  * FILTER[j];
       result[i].s[slot] = accum.s[slot];
