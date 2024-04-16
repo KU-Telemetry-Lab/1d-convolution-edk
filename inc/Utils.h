@@ -20,7 +20,7 @@ static void cudaCheck_internal (cudaError_t error, const char *file, int line) {
 #define cudaCheck(err) (cudaCheck_internal(err, __FILE__, __LINE__))
 
 
-#define MAX_KERNEL_INDEX 6
+#define MAX_KERNEL_INDEX 7
 
 static const char* indexToKernelName (int index) {
     const char* kernel_names[MAX_KERNEL_INDEX + 1];
@@ -32,6 +32,7 @@ static const char* indexToKernelName (int index) {
     kernel_names[4] = "wide_cache";
     kernel_names[5] = "wide_cache_filter_cached";
     kernel_names[6] = "wide_cache_filter_constant_mem";
+    kernel_names[7] = "more_threads";
     if ( index > MAX_KERNEL_INDEX) {
         return "Invalid index";
     } else {
@@ -55,6 +56,6 @@ void copy_matrix(const float *src, float *dest, int N);
 
 void print_matrix(const float *A, int M, int N, std::ofstream &fs);
 
-bool verify_matrix(float *matRef, float *matOut, int N);
+bool verify_matrix(float *matRef, float *matOut, int N, int* errIndex);
 
 int div_ceil(int numerator, int denominator);
