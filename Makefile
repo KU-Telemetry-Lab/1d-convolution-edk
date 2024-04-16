@@ -73,3 +73,6 @@ $(OBJDIR)/%.o: $(SRCDIR)/%.cu
 clean:
 	rm -f $(OBJECTS)
 	rm -f $(addprefix $(BINDIR)/, $(ALL_EXES))
+	rm -f $(DEPS)
+
+-include $(DEPS)
