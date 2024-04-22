@@ -105,19 +105,22 @@ template <const int NUM_THREADS, const int FILTER_LENGTH >
 __global__ void wide_cache (const float * __restrict__ signal, const float * __restrict__ filter,
                             float * __restrict__ result, const int sigLen) {
 
+    const int LOCAL_SIZE = NUM_THREADS + FILTER_LENGTH;
+    const int INDEXES_PER_THREAD = ROUND_UP(LOCAL_SIZE, NUM_THREADS);
+    const int FILTER_RADIUS = FILTER_LENGTH/2;
+
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     int iLocal = threadIdx.x;
 
-    const int filter_radius = FILTER_LENGTH/2;
-
-    __shared__ float sigLocal[ NUM_THREADS + FILTER_LENGTH];
+    __shared__ float sigLocal[LOCAL_SIZE];
 
    int sigIndex;
-   sigIndex = i - filter_radius;
-   sigLocal[iLocal] = (sigIndex >= 0 && sigIndex < sigLen) ? signal[sigIndex] : 0.0f;
-   if (iLocal < FILTER_LENGTH) {
-       sigIndex = i - filter_radius + NUM_THREADS;
-       sigLocal[iLocal + NUM_THREADS] = (sigIndex < sigLen) ? signal[sigIndex] : 0.0f;
+   int locIndex;
+   for (int j=0; j< INDEXES_PER_THREAD; j++) {
+       sigIndex = i - FILTER_RADIUS + j*NUM_THREADS;
+       locIndex = iLocal + j*NUM_THREADS;
+       if (locIndex < LOCAL_SIZE)
+           sigLocal[locIndex] = (sigIndex >= 0 && sigIndex < sigLen) ? signal[sigIndex] : 0.0f;
    }
    __syncthreads();
 
@@ -167,13 +170,13 @@ __global__ void wide_cache_filter_constant_mem (const float * __restrict__ signa
 
   __shared__ float sigLocal[ NUM_THREADS + FILTER_LENGTH];
 
-  int filter_radius = FILTER_LENGTH/2;
+  const int FILTER_RADIUS = FILTER_LENGTH/2;
   int sigIndex;
 
-  sigIndex = i - filter_radius;
+  sigIndex = i - FILTER_RADIUS;
   sigLocal[iLocal] = (sigIndex >= 0 && sigIndex < sigLen) ? signal[sigIndex] : 0.0f;
   if (iLocal < FILTER_LENGTH) {
-      sigIndex = i - filter_radius + NUM_THREADS;
+      sigIndex = i - FILTER_RADIUS + NUM_THREADS;
       sigLocal[iLocal + NUM_THREADS] = (sigIndex < sigLen) ? signal[sigIndex] : 0.0f;
   }
     __syncthreads();
@@ -190,35 +193,44 @@ template <const int NUM_THREADS, const int FILTER_LENGTH, const int NUM_HELPERS 
 __global__ void more_threads (const float * __restrict__ signal,
                               float * __restrict__ result, const int sigLen) {
 
+    const int LOCAL_SIZE = NUM_THREADS + FILTER_LENGTH;
+    const int INDEXES_PER_THREAD = ROUND_UP(LOCAL_SIZE, NUM_THREADS);
+    const int FILTER_RADIUS = FILTER_LENGTH/2;
+
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     int iLocal = threadIdx.x;
     int helperThread = threadIdx.y;
     int partialSumBase = iLocal * NUM_HELPERS;
 
-    __shared__ float sigLocal[ NUM_THREADS + FILTER_LENGTH];
+
+    __shared__ float sigLocal[LOCAL_SIZE];
     __shared__ float partialSum[NUM_THREADS * NUM_HELPERS];
 
-    int filter_radius = FILTER_LENGTH/2;
     int sigIndex;
+    int locIndex;
     int localj;
 
-    if (helperThread == 0) {
-        sigIndex = i - filter_radius;
-        sigLocal[iLocal] = (sigIndex >= 0 && sigIndex < sigLen) ? signal[sigIndex] : 0.0f;
-        if (iLocal < FILTER_LENGTH) {
-            sigIndex = i - filter_radius + NUM_THREADS;
-            sigLocal[iLocal + NUM_THREADS] = (sigIndex < sigLen) ? signal[sigIndex] : 0.0f;
-        }
-        for (int j=0; j < NUM_HELPERS; j++) {
-            partialSum[partialSumBase + j] = 0.0;
-        }
+    // This relation must be satisfied.
+    // raw "assert" in kernel code is not supported.
+    // Should generate an error (and check for it in calling code) ...
+    // assert (NUM_HELPERS >= INDEXES_PER_THREAD);
+
+    if (helperThread < INDEXES_PER_THREAD) {
+        sigIndex = i - FILTER_RADIUS + helperThread * NUM_THREADS;
+        locIndex = iLocal + helperThread * NUM_THREADS;
+        if (locIndex < LOCAL_SIZE)
+            sigLocal[locIndex] = (sigIndex >= 0 && sigIndex < sigLen) ? signal[sigIndex] : 0.0f;
     }
+    partialSum[partialSumBase + helperThread] = 0.0;
+
     __syncthreads();
 
-    for (int j=0; j < FILTER_LENGTH; j=j+NUM_HELPERS) {
-        localj = j + helperThread;
-        if (localj < FILTER_LENGTH) {
-            partialSum[partialSumBase + helperThread] += sigLocal[iLocal + localj] * FILTER[localj];
+    if ( i < sigLen) {
+        for (int j=0; j < FILTER_LENGTH; j=j+NUM_HELPERS) {
+            localj = j + helperThread;
+            if (localj < FILTER_LENGTH) {
+                partialSum[partialSumBase + helperThread] += sigLocal[iLocal + localj] * FILTER[localj];
+            }
         }
     }
     __syncthreads();
@@ -258,16 +270,16 @@ __global__ void convolution_bundle (const bundleElt * __restrict__ signal,
 
   __shared__ bundleElt sigLocal[ NUM_THREADS + FILTER_LENGTH];
 
-  int filter_radius = FILTER_LENGTH/2;
+  const int FILTER_RADIUS = FILTER_LENGTH/2;
   int sigIndex;
 
   if (i < sig_length) {
       // only use a single packet slot thread to fill sigLocal.
      if ( slot == 0) {
-          sigIndex = i - filter_radius;
+          sigIndex = i - FILTER_RADIUS;
           sigLocal[iLocal] = sigIndex < 0 ? bundle0 : signal[sigIndex];
           if (iLocal < FILTER_LENGTH) {
-              sigIndex = i - filter_radius + NUM_THREADS;
+              sigIndex = i - FILTER_RADIUS + NUM_THREADS;
               sigLocal[iLocal + NUM_THREADS] = sigIndex >= sig_length ? bundle0 : signal[sigIndex];
           }
       }
