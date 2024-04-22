@@ -37,8 +37,8 @@ int main(int argc, char **argv) {
   }
   cudaCheck(cudaSetDevice(deviceIdx));
 
-  printf("Running kernel %d (%s) on device %d, FILTER_WIDTH = %d\n",
-         kernel_num, indexToKernelName(kernel_num),  deviceIdx, FILTER_WIDTH);
+  printf("Running kernel %d (%s) on device %d, FILTER_WIDTH = %d, NUM_THREADS = %d\n",
+         kernel_num, indexToKernelName(kernel_num),  deviceIdx, FILTER_WIDTH, NUM_THREADS);
   fflush(stdout);
 
   // print some device info

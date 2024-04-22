@@ -80,12 +80,12 @@ int main(int argc, char **argv) {
     // Verify the correctness of the calculation, and execute it once before the
     // kernel function timing to avoid cold start errors
 
-    const int NUM_THREADS = 64;
-    const int FILTER_LENGTH = FILTER_WIDTH;
-    dim3 blockDim(SLOTS_PER_ELT, NUM_THREADS);
+    // Should be required only if (NUM_THREADS * SLOTS_PER_ELT > 1024)
+    const int NTHREADS = 1024 / SLOTS_PER_ELT;
+    dim3 blockDim(SLOTS_PER_ELT, NTHREADS);
 
-    convolution_bundle<NUM_THREADS, FILTER_LENGTH>
-        <<<ROUND_UP(sig_length, NUM_THREADS), blockDim>>>
+    convolution_bundle<NTHREADS, FILTER_WIDTH>
+        <<<ROUND_UP(sig_length, NTHREADS), blockDim>>>
         (d_signal, d_result, sig_length);
 
     cudaCheck(cudaDeviceSynchronize());
@@ -107,8 +107,8 @@ int main(int argc, char **argv) {
 
     cudaEventRecord(beg);
     for (int j = 0; j < repeat_times; j++) {
-      convolution_bundle<NUM_THREADS, FILTER_LENGTH>
-          <<<ROUND_UP(sig_length, NUM_THREADS), blockDim>>>
+      convolution_bundle<NTHREADS, FILTER_WIDTH>
+          <<<ROUND_UP(sig_length, NTHREADS), blockDim>>>
         (d_signal, d_result, sig_length);
     };
     cudaEventRecord(end);

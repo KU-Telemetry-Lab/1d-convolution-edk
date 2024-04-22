@@ -9,25 +9,21 @@
 
 #include "implementations.cuh"
 
-
 void run_basic (float *signal, float *filter, float *result,
                          int sig_length, int filter_length) {
 
-  const int NUM_THREADS = 64;
   convolution_basic<<<ROUND_UP(sig_length, NUM_THREADS), NUM_THREADS>>>(signal, filter, result, sig_length, filter_length);
 }
 
 void run_basic_filter_constMem (float *signal, float *filter, float *result,
                                    int sig_length, int filter_length) {
 
-    const int NUM_THREADS = 64;
     basic_filter_constMem<<<ROUND_UP(sig_length, NUM_THREADS), NUM_THREADS>>>(signal, result, sig_length, filter_length);
 }
 
 void run_caching (float *signal, float *filter, float *result,
                            int sig_length, int filter_length) {
 
-  const int NUM_THREADS = 32;
   convolution_caching<NUM_THREADS>
     <<<ROUND_UP(sig_length, NUM_THREADS), NUM_THREADS>>>
     (signal, filter, result, sig_length, filter_length);
@@ -37,9 +33,7 @@ void run_caching (float *signal, float *filter, float *result,
 void run_wide_cache (float *signal, float *filter, float *result,
                      int sig_length, int filter_length) {
 
-  const int NUM_THREADS = 256;
-  const int FILTER_LENGTH = FILTER_WIDTH;
-  wide_cache<NUM_THREADS, FILTER_LENGTH>
+  wide_cache<NUM_THREADS, FILTER_WIDTH>
     <<<ROUND_UP(sig_length, NUM_THREADS), NUM_THREADS>>>
       (signal, filter, result, sig_length);
 }
@@ -47,9 +41,7 @@ void run_wide_cache (float *signal, float *filter, float *result,
 void run_wide_cache_filter_cached (float *signal, float *filter, float *result,
                                    int sig_length, int filter_length) {
 
-  const int NUM_THREADS = 256;
-  const int FILTER_LENGTH = FILTER_WIDTH;
-  wide_cache_filter_cached <NUM_THREADS, FILTER_LENGTH>
+  wide_cache_filter_cached <NUM_THREADS, FILTER_WIDTH>
     <<<ROUND_UP(sig_length, NUM_THREADS), NUM_THREADS>>>
     (signal, filter, result, sig_length, filter_length);
 }
@@ -58,10 +50,7 @@ void run_wide_cache_filter_cached (float *signal, float *filter, float *result,
 void run_wide_cache_filter_constant_mem(float *signal, float *filter, float *result,
                                         int sig_length, int filter_length) {
 
-  const int NUM_THREADS = 256;
-  const int FILTER_LENGTH = FILTER_WIDTH;
-
-  wide_cache_filter_constant_mem  <NUM_THREADS, FILTER_LENGTH>
+  wide_cache_filter_constant_mem  <NUM_THREADS, FILTER_WIDTH>
       <<<ROUND_UP(sig_length, NUM_THREADS), NUM_THREADS>>>
       (signal, result, sig_length);
 }
@@ -70,14 +59,16 @@ void run_wide_cache_filter_constant_mem(float *signal, float *filter, float *res
 void run_more_threads(float *signal, float *filter, float *result,
                       int sig_length, int filter_length) {
 
-  const int NUM_THREADS = 256;
-  const int NUM_HELPERS = 4;
-  const int FILTER_LENGTH = FILTER_WIDTH;
+  const int NUM_HELPERS ROUND_UP(FILTER_WIDTH, 32);
 
-  dim3 gridDim(ROUND_UP(sig_length, NUM_THREADS));
-  dim3 blockDim(NUM_THREADS, NUM_HELPERS);
+  // Should use this only if ( NUM_THREADS * NUM_HELPERS > 1024)
+  const int LOCAL_THREADS = 1024 / NUM_HELPERS;
 
-  more_threads <NUM_THREADS, FILTER_LENGTH, NUM_HELPERS>
+
+  dim3 gridDim(ROUND_UP(sig_length, LOCAL_THREADS));
+  dim3 blockDim(LOCAL_THREADS, NUM_HELPERS);
+
+  more_threads <LOCAL_THREADS, FILTER_WIDTH, NUM_HELPERS>
       <<<gridDim, blockDim>>>
       (signal, result, sig_length);
 }
