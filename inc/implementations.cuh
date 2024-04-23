@@ -7,8 +7,8 @@
 
 #include "bundleElt16.h"
 
-#define NUM_THREADS  256
-#define FILTER_WIDTH 255
+#define NUM_THREADS  32
+#define FILTER_WIDTH 57
 
 __constant__ float FILTER[FILTER_WIDTH];
 
@@ -136,23 +136,27 @@ template <const int NTRHEADS, const int FILTER_LENGTH >
 __global__ void wide_cache_filter_cached (const float * __restrict__ signal, const float * __restrict__ filter,
                                           float * __restrict__ result, const int sigLen, const int filter_length) {
 
+    const int LOCAL_SIZE = NTRHEADS + FILTER_LENGTH;
+    const int INDEXES_PER_THREAD = ROUND_UP(LOCAL_SIZE, NTRHEADS);
+    const int FILTER_RADIUS = FILTER_LENGTH/2;
+
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     int iLocal = threadIdx.x;
 
-    __shared__ float sigLocal[ NTRHEADS + FILTER_LENGTH];
+    __shared__ float sigLocal[LOCAL_SIZE];
     __shared__ float filterLocal[FILTER_LENGTH];
 
     int sigIndex;
-    sigIndex = i - filter_length/2;
-    sigLocal[iLocal] = (sigIndex >= 0 && sigIndex < sigLen) ? signal[sigIndex] : 0.0f;
-    if (iLocal < filter_length) {
-        sigIndex = i - filter_length/2 + NTRHEADS;
-        sigLocal[iLocal + NTRHEADS] = (sigIndex < sigLen) ? signal[sigIndex] : 0.0f;
+    int locIndex;
+    for (int j=0; j< INDEXES_PER_THREAD; j++) {
+        sigIndex = i - FILTER_RADIUS + j*NTRHEADS;
+        locIndex = iLocal + j*NTRHEADS;
+        if (locIndex < LOCAL_SIZE)
+            sigLocal[locIndex] = (sigIndex >= 0 && sigIndex < sigLen) ? signal[sigIndex] : 0.0f;
+        if (locIndex < FILTER_LENGTH)
+            filterLocal[locIndex] = filter[locIndex];
     }
-    if (iLocal < FILTER_LENGTH) {
-        filterLocal[iLocal] = filter[iLocal];
-    }
-    __syncthreads();
+   __syncthreads();
 
     if ( i < sigLen) {
         float accum = 0.0;
@@ -166,27 +170,31 @@ template <const int NTRHEADS, const int FILTER_LENGTH >
 __global__ void wide_cache_filter_constant_mem (const float * __restrict__ signal,
                                                 float * __restrict__ result, const int sigLen) {
 
-  int i = blockIdx.x * blockDim.x + threadIdx.x;
-  int iLocal = threadIdx.x;
+    const int LOCAL_SIZE = NTRHEADS + FILTER_LENGTH;
+    const int INDEXES_PER_THREAD = ROUND_UP(LOCAL_SIZE, NTRHEADS);
+    const int FILTER_RADIUS = FILTER_LENGTH/2;
 
-  __shared__ float sigLocal[ NTRHEADS + FILTER_LENGTH];
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    int iLocal = threadIdx.x;
 
-  const int FILTER_RADIUS = FILTER_LENGTH/2;
-  int sigIndex;
+    __shared__ float sigLocal[LOCAL_SIZE];
 
-  sigIndex = i - FILTER_RADIUS;
-  sigLocal[iLocal] = (sigIndex >= 0 && sigIndex < sigLen) ? signal[sigIndex] : 0.0f;
-  if (iLocal < FILTER_LENGTH) {
-      sigIndex = i - FILTER_RADIUS + NTRHEADS;
-      sigLocal[iLocal + NTRHEADS] = (sigIndex < sigLen) ? signal[sigIndex] : 0.0f;
-  }
+    int sigIndex;
+
+    int locIndex;
+    for (int j=0; j< INDEXES_PER_THREAD; j++) {
+        sigIndex = i - FILTER_RADIUS + j*NTRHEADS;
+        locIndex = iLocal + j*NTRHEADS;
+        if (locIndex < LOCAL_SIZE)
+            sigLocal[locIndex] = (sigIndex >= 0 && sigIndex < sigLen) ? signal[sigIndex] : 0.0f;
+    }
     __syncthreads();
 
-  if ( i < sigLen) {
-    float accum = 0.0;
-    for (int j=0; j < FILTER_LENGTH; j++) accum += sigLocal[iLocal + j] * FILTER[j];
-    result[i] = accum;
-  }
+    if ( i < sigLen) {
+        float accum = 0.0;
+        for (int j=0; j < FILTER_LENGTH; j++) accum += sigLocal[iLocal + j] * FILTER[j];
+        result[i] = accum;
+    }
 }
 
 
