@@ -60,10 +60,7 @@ void run_more_threads(float *signal, float *filter, float *result,
                       int sig_length, int filter_length) {
 
   const int NUM_HELPERS ROUND_UP(FILTER_WIDTH, 32);
-
-  // Should use this only if ( NUM_THREADS * NUM_HELPERS > 1024)
-  const int LOCAL_THREADS = 1024 / NUM_HELPERS;
-
+  const int LOCAL_THREADS = ( NUM_THREADS * NUM_HELPERS > 1024)? 1024 / NUM_HELPERS : NUM_THREADS;
 
   dim3 gridDim(ROUND_UP(sig_length, LOCAL_THREADS));
   dim3 blockDim(LOCAL_THREADS, NUM_HELPERS);
