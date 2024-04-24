@@ -15,12 +15,19 @@ int main(int argc, char **argv) {
       std::cerr << " <include_data_transfer_times> (0/1)" << std::endl;
     exit(EXIT_FAILURE);
   }
+  int include_transfer_time;
 
   // get kernel number
   int kernel_num = std::stoi(argv[1]);
   if (kernel_num < 0 || kernel_num > MAX_KERNEL_INDEX) {
     std::cerr << "Please enter a valid kernel number (0 - " << MAX_KERNEL_INDEX << ")" << std::endl;
     exit(EXIT_FAILURE);
+  }
+
+  if (argc > 2) {
+      include_transfer_time = std::stoi(argv[2]);
+  } else {
+      include_transfer_time = 0;
   }
 
   // get environment variable for device
@@ -50,18 +57,29 @@ int main(int argc, char **argv) {
   max_length = SIG_LENGTH[SIG_LENGTH.size() - 1];
 
   float *signal = nullptr;
+  float *d_signal = nullptr;
   float *filter = nullptr;
+  float *d_filter = nullptr;
   float *result = nullptr;
+  float *d_result = nullptr;
   float *result_ref = nullptr;
 
-  cudaMallocManaged(&signal, max_length * sizeof(float));
-  cudaMallocManaged(&filter, FILTER_WIDTH * sizeof(float));
-  cudaMallocManaged(&result, max_length * sizeof(float));
+  signal = (float *)malloc(sizeof(float) * max_length);
+  result = (float *)malloc(sizeof(float) * max_length);
   result_ref = (float *)malloc(sizeof(float) * max_length);
+
+  filter = (float *)malloc(sizeof(float) * FILTER_WIDTH);
 
   unsigned int fixed_seed = 1233331;
   randomize_matrix(signal, max_length, fixed_seed);
   randomize_matrix(filter, FILTER_WIDTH, fixed_seed);
+
+  cudaCheck(cudaMalloc((void **)&d_signal, sizeof(float) * max_length));
+  cudaCheck(cudaMalloc((void **)&d_result, sizeof(float) * max_length));
+  cudaCheck(cudaMalloc((void **)&d_filter, sizeof(float) * FILTER_WIDTH));
+
+  cudaCheck(cudaMemcpy(d_signal, signal, sizeof(float) * max_length, cudaMemcpyHostToDevice));
+  cudaCheck(cudaMemcpy(d_filter, filter, sizeof(float) * FILTER_WIDTH, cudaMemcpyHostToDevice));
 
   // Copy the data directly to the symbol
   // Would require 2 API calls with cudaMemcpy
@@ -92,11 +110,13 @@ int main(int argc, char **argv) {
         // Verify the correctness of the calculation, and execute it once before the
         // kernel function timing to avoid cold start errors
 
-        run_kernel(kernel_num, signal, filter, result, sig_length, filter_length);
+        run_kernel(kernel_num, d_signal, d_filter, d_result, sig_length, filter_length);
         cudaCheck(cudaDeviceSynchronize());
         cudaCheck(cudaGetLastError()); // Check for async errors during kernel run
+        cudaMemcpy(result, d_result, sizeof(float) * sig_length, cudaMemcpyDeviceToHost);
 
         int errIndex;
+
         if (!verify_matrix(result_ref, result, sig_length, &errIndex)) {
             std::cout
                 << "Failed to pass the correctness verification against host implementation. "
@@ -114,7 +134,11 @@ int main(int argc, char **argv) {
         cudaEventRecord(beg);
         for (int j = 0; j < repeat_times; j++) {
 
-            run_kernel(kernel_num, signal, filter, result, sig_length, filter_length);
+            if (include_transfer_time)
+                cudaCheck(cudaMemcpy(d_signal, signal, sizeof(float) * max_length, cudaMemcpyHostToDevice));
+            run_kernel(kernel_num, d_signal, d_filter, d_result, sig_length, filter_length);
+            if (include_transfer_time)
+                cudaMemcpy(result, d_result, sizeof(float) * sig_length, cudaMemcpyDeviceToHost);
         };
         cudaEventRecord(end);
         cudaEventSynchronize(end);
@@ -128,10 +152,12 @@ int main(int argc, char **argv) {
     }
   }
   // Free up CPU and GPU space
-  cudaFree(signal);
-  cudaFree(filter);
-  cudaFree(result);
+  free(signal);
+  free(result);
   free(result_ref);
+  cudaFree(d_signal);
+  cudaFree(d_filter);
+  cudaFree(d_result);
 
   return 0;
 };
