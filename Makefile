@@ -48,7 +48,7 @@ DEPS := $(OBJECTS:.o=.d)
 
 ################################################################################
 
-ALL_EXES := 1d_convolution_tests 1d_convolution_bundle
+ALL_EXES := 1d_convolution_tests 1d_convolution_tests_Memcpy 1d_convolution_bundle
 
 MAIN_OBJECTS := $(foreach exe, $(ALL_EXES), $(OBJDIR)/$(exe).o)
 NOT_MAIN_OBJECTS := $(filter-out $(MAIN_OBJECTS), $(OBJECTS))
@@ -65,10 +65,16 @@ $(OBJDIR)/%.o: $(SRCDIR)/%.cu
 	$(NVCC)  $(CPP_FLAGS) $(NVCC_FLAGS) -o $@ -c $<
 
 1d_convolution_tests: $(OBJDIR)/1d_convolution_tests.o $(NOT_MAIN_OBJECTS)
-	$(NVCC) $(NVCC_FLAGS)  $(NVCC_LDFLAGS) -o $(BINDIR)/$@ $+ $(LIBRARIES) $(NVCC_LIBRARIES)
+	@$(NVCC) $(NVCC_FLAGS)  $(NVCC_LDFLAGS) $+ $(LIBRARIES) $(NVCC_LIBRARIES) -o $(BINDIR)/$@
+	@echo $(BINDIR)/$@
+
+1d_convolution_tests_Memcpy: $(OBJDIR)/1d_convolution_tests.o $(NOT_MAIN_OBJECTS)
+	@$(NVCC) $(NVCC_FLAGS)  $(NVCC_LDFLAGS) $+ $(LIBRARIES) $(NVCC_LIBRARIES) -o $(BINDIR)/$@
+	@echo $(BINDIR)/$@
 
 1d_convolution_bundle: $(OBJDIR)/1d_convolution_bundle.o $(NOT_MAIN_OBJECTS)
-	$(NVCC) $(NVCC_FLAGS)  $(NVCC_LDFLAGS) -o $(BINDIR)/$@ $+ $(LIBRARIES) $(NVCC_LIBRARIES)
+	@$(NVCC) $(NVCC_FLAGS)  $(NVCC_LDFLAGS) $+ $(LIBRARIES) $(NVCC_LIBRARIES) -o $(BINDIR)/$@
+	@echo $(BINDIR)/$@
 
 clean:
 	rm -f $(OBJECTS)
