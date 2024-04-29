@@ -39,6 +39,7 @@ int main(int argc, char **argv) {
 
   printf("Running kernel %d (%s) on device %d, FILTER_WIDTH = %d, NUM_THREADS = %d\n",
          kernel_num, indexToKernelName(kernel_num),  deviceIdx, FILTER_WIDTH, NUM_THREADS);
+  if (include_transfer_time) printf("This run will include timing for cudaMemcpy to/from the device.\n");
   fflush(stdout);
 
   // print some device info

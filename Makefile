@@ -68,7 +68,7 @@ $(OBJDIR)/%.o: $(SRCDIR)/%.cu
 	@$(NVCC) $(NVCC_FLAGS)  $(NVCC_LDFLAGS) $+ $(LIBRARIES) $(NVCC_LIBRARIES) -o $(BINDIR)/$@
 	@echo $(BINDIR)/$@
 
-1d_convolution_tests_Memcpy: $(OBJDIR)/1d_convolution_tests.o $(NOT_MAIN_OBJECTS)
+1d_convolution_tests_Memcpy: $(OBJDIR)/1d_convolution_tests_Memcpy.o $(NOT_MAIN_OBJECTS)
 	@$(NVCC) $(NVCC_FLAGS)  $(NVCC_LDFLAGS) $+ $(LIBRARIES) $(NVCC_LIBRARIES) -o $(BINDIR)/$@
 	@echo $(BINDIR)/$@
 
